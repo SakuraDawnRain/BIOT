@@ -94,6 +94,7 @@ class BIOTEncoder(nn.Module):
 
         # channel token, N_channels >= your actual channels
         self.channel_tokens = nn.Embedding(n_channels, 256)
+        print(n_channels)
         self.index = nn.Parameter(
             torch.LongTensor(range(n_channels)), requires_grad=False
         )

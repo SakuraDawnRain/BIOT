@@ -132,7 +132,7 @@ def prepare_TUAB_dataloader(args):
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
 
-    root = "/srv/local/data/TUH/tuh3/tuh_eeg_abnormal/v3.0.0/edf/processed"
+    root = "/home/ww/data/tuab_test"
 
     train_files = os.listdir(os.path.join(root, "train"))
     np.random.shuffle(train_files)
@@ -366,8 +366,11 @@ def supervised(args):
     )
 
     # test the model
+    # pretrain_result = trainer.test(
+    #     model=lightning_model, ckpt_path="best", dataloaders=test_loader
+    # )[0]
     pretrain_result = trainer.test(
-        model=lightning_model, ckpt_path="best", dataloaders=test_loader
+        model=lightning_model, dataloaders=test_loader
     )[0]
     print(pretrain_result)
 
