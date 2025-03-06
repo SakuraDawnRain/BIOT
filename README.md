@@ -79,6 +79,7 @@ To run your own pretrained models:
 ##### Reference Runs
 ```bash
 python run_binary_supervised.py --dataset TUAB --in_channels 23 --sampling_rate 200 --token_size 200 --hop_length 100 --sample_length 10 --batch_size 512 --model BIOT
+python run_binary_supervised.py --dataset TUAB --in_channels 23 --sampling_rate 200 --token_size 200 --hop_length 100 --sample_length 10 --batch_size 512 --model SFBIOT
 # python run_binary_supervised.py --dataset TUAB --in_channels 16 --sampling_rate 200 --token_size 200 --hop_length 100 --sample_length 10 --batch_size 512 --model BIOT
 python run_binary_supervised.py --dataset TUAB --in_channels 16 --sampling_rate 200 --token_size 200 --hop_length 100 --sample_length 10 --batch_size 512 --model BIOT --pretrain_model_path pretrained-models/EEG-PREST-16-channels.ckpt
 python run_binary_supervised.py --dataset TUAB --in_channels 18 --sampling_rate 200 --token_size 200 --hop_length 100 --sample_length 10 --batch_size 512 --model BIOT --pretrain_model_path pretrained-models/EEG-SHHS+PREST-18-channels.ckpt

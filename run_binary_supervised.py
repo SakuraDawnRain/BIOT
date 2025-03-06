@@ -21,6 +21,7 @@ from model import (
     FFCL,
     STTransformer,
     BIOTClassifier,
+    SlowFastBIOTClassifier,
 )
 from utils import TUABLoader, CHBMITLoader, PTBLoader, focal_loss, BCE
 
@@ -323,6 +324,18 @@ def supervised(args):
 
     elif args.model == "BIOT":
         model = BIOTClassifier(
+            n_classes=args.n_classes,
+            # set the n_channels according to the pretrained model if necessary
+            n_channels=args.in_channels,
+            n_fft=args.token_size,
+            hop_length=args.hop_length,
+        )
+        if args.pretrain_model_path and (args.sampling_rate == 200):
+            model.biot.load_state_dict(torch.load(args.pretrain_model_path))
+            print(f"load pretrain model from {args.pretrain_model_path}")
+
+    elif args.model == "SFBIOT":
+        model = SlowFastBIOTClassifier(
             n_classes=args.n_classes,
             # set the n_channels according to the pretrained model if necessary
             n_channels=args.in_channels,

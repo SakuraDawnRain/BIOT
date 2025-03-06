@@ -94,7 +94,6 @@ class BIOTEncoder(nn.Module):
 
         # channel token, N_channels >= your actual channels
         self.channel_tokens = nn.Embedding(n_channels, 256)
-        print(n_channels)
         self.index = nn.Parameter(
             torch.LongTensor(range(n_channels)), requires_grad=False
         )
@@ -138,7 +137,7 @@ class BIOTEncoder(nn.Module):
                 channel_emb = channel_emb[:, selected_ts]
             emb_seq.append(channel_emb)
 
-        # (batch_size, 16 * ts, emb)
+        # (batch_size, channel * ts, emb)
         emb = torch.cat(emb_seq, dim=1)
         # (batch_size, emb)
         emb = self.transformer(emb).mean(dim=1)
@@ -155,6 +154,21 @@ class BIOTClassifier(nn.Module):
     def forward(self, x):
         x = self.biot(x)
         x = self.classifier(x)
+        return x
+    
+# supervised classifier module with slow-fast strategy
+class SlowFastBIOTClassifier(nn.Module):
+    def __init__(self, emb_size=256, heads=8, depth=4, n_classes=6, **kwargs):
+        super().__init__()
+        print("use slow-fast strategy")
+        self.fast_biot = BIOTEncoder(emb_size=emb_size, heads=heads, depth=depth, n_fft=400, hop_length=200, n_channels=23)
+        self.slow_biot = BIOTEncoder(emb_size=emb_size, heads=heads, depth=depth, n_fft=100, hop_length=50, n_channels=23)
+        self.classifier = ClassificationHead(emb_size*2, n_classes)
+
+    def forward(self, x):
+        fast_x = self.fast_biot(x)
+        slow_x = self.slow_biot(x)
+        x = self.classifier(torch.cat((fast_x, slow_x), 1))
         return x
 
 
