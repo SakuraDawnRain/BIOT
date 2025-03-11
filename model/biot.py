@@ -143,6 +143,106 @@ class BIOTEncoder(nn.Module):
         emb = self.transformer(emb).mean(dim=1)
         return emb
 
+class SlowFastBIOTEncoder(nn.Module):
+    def __init__(
+        self,
+        emb_size=256,
+        heads=8,
+        depth=4,
+        n_channels=16,
+        n_fft=200,
+        hop_length=100,
+        **kwargs
+    ):
+        super().__init__()
+
+        self.n_fft = n_fft
+        self.hop_length = hop_length
+        
+        self.slow_window = 200
+        self.fast_window = 2000
+
+        # self.patch_embedding = PatchFrequencyEmbedding(
+        #     emb_size=emb_size, n_freq=self.n_fft // 2 + 1
+        # )
+        self.slow_embedding = PatchFrequencyEmbedding(
+            emb_size=emb_size, n_freq=self.slow_window // 2 + 1
+        )
+        self.fast_embedding = PatchFrequencyEmbedding(
+            emb_size=emb_size, n_freq=self.fast_window // 2 + 1
+        )
+        self.transformer = LinearAttentionTransformer(
+            dim=emb_size,
+            heads=heads,
+            depth=depth,
+            max_seq_len=1024,
+            attn_layer_dropout=0.2,  # dropout right after self-attention layer
+            attn_dropout=0.2,  # dropout post-attention
+        )
+        self.positional_encoding = PositionalEncoding(emb_size)
+
+        # channel token, N_channels >= your actual channels
+        self.channel_tokens = nn.Embedding(n_channels, 256)
+        self.index = nn.Parameter(
+            torch.LongTensor(range(n_channels)), requires_grad=False
+        )
+
+    def stft(self, sample, n_fft, hop_length):
+        spectral = torch.stft( 
+            input = sample.squeeze(1),
+            n_fft = n_fft,
+            hop_length = hop_length,
+            center = False,
+            onesided = True,
+            return_complex = True,
+        )
+        return torch.abs(spectral)
+
+    def forward(self, x, n_channel_offset=0, perturb=False):
+        """
+        x: [batch_size, channel, ts]
+        output: [batch_size, emb_size]
+        """
+        batch_size, n_channel, _ = x.shape
+        emb_seq = []
+        for i in range(n_channel):
+            # channel_spec_emb = self.stft(x[:, i : i + 1, :], n_fft = 200, hop_length = 100)
+            slow_channel_spec_emb = self.stft(x[:, i : i + 1, :], n_fft = self.slow_window, hop_length = self.slow_window//2)
+            fast_channel_spec_emb = self.stft(x[:, i : i + 1, :], n_fft = self.fast_window, hop_length = self.fast_window//2)
+            
+            # channel_spec_emb = self.patch_embedding(channel_spec_emb)
+            slow_spec_emb = self.slow_embedding(slow_channel_spec_emb)
+            fast_spec_emb = self.fast_embedding(fast_channel_spec_emb)
+            batch_size, slow_ts, _ = slow_spec_emb.shape
+            # batch_size, slow_ts, _ = slow_spec_emb.shape
+            # batch_size, fast_ts, _ = fast_spec_emb.shape
+            # channel_spec_emb = torch.
+            # (batch_size, ts, emb)
+            channel_spec_emb = slow_spec_emb + fast_spec_emb.repeat(1, slow_ts, 1)
+            # channel_spec_emb = slow_spec_emb + fast_spec_emb.repeat(1, slow_ts, 1)
+            batch_size, ts, _ = channel_spec_emb.shape
+            channel_token_emb = (
+                self.channel_tokens(self.index[i + n_channel_offset])
+                .unsqueeze(0)
+                .unsqueeze(0)
+                .repeat(batch_size, ts, 1)
+            )
+            # (batch_size, ts, emb)
+            channel_emb = self.positional_encoding(channel_spec_emb + channel_token_emb)
+
+            # perturb
+            if perturb:
+                ts = channel_emb.shape[1]
+                ts_new = np.random.randint(ts // 2, ts)
+                selected_ts = np.random.choice(range(ts), ts_new, replace=False)
+                channel_emb = channel_emb[:, selected_ts]
+            emb_seq.append(channel_emb)
+
+        # (batch_size, channel * ts, emb)
+        emb = torch.cat(emb_seq, dim=1)
+        # (batch_size, emb)
+        emb = self.transformer(emb).mean(dim=1)
+        return emb
 
 # supervised classifier module
 class BIOTClassifier(nn.Module):
@@ -156,20 +256,37 @@ class BIOTClassifier(nn.Module):
         x = self.classifier(x)
         return x
     
-# supervised classifier module with slow-fast strategy
 class SlowFastBIOTClassifier(nn.Module):
     def __init__(self, emb_size=256, heads=8, depth=4, n_classes=6, **kwargs):
         super().__init__()
-        print("use slow-fast strategy")
-        self.fast_biot = BIOTEncoder(emb_size=emb_size, heads=heads, depth=depth, n_fft=400, hop_length=200, n_channels=23)
-        self.slow_biot = BIOTEncoder(emb_size=emb_size, heads=heads, depth=depth, n_fft=100, hop_length=50, n_channels=23)
-        self.classifier = ClassificationHead(emb_size*2, n_classes)
+        self.biot = SlowFastBIOTEncoder(emb_size=emb_size, heads=heads, depth=depth, **kwargs)
+        self.classifier = ClassificationHead(emb_size, n_classes)
 
     def forward(self, x):
-        fast_x = self.fast_biot(x)
-        slow_x = self.slow_biot(x)
-        x = self.classifier(torch.cat((fast_x, slow_x), 1))
+        x = self.biot(x)
+        x = self.classifier(x)
         return x
+    
+# # supervised classifier module with naive slow-fast strategy
+# class NaiveSlowFastBIOTClassifier(nn.Module):
+#     def __init__(self, emb_size=256, heads=8, depth=4, n_classes=6, **kwargs):
+#         super().__init__()
+#         print("use slow-fast strategy")
+#         self.fast_biot = BIOTEncoder(emb_size=emb_size, heads=heads, depth=depth, n_fft=400, hop_length=200, n_channels=23)
+#         self.slow_biot = BIOTEncoder(emb_size=emb_size, heads=heads, depth=depth, n_fft=50, hop_length=25, n_channels=23)
+#         # concat
+#         self.classifier = ClassificationHead(2*emb_size, n_classes)
+#         # # add
+#         # self.classifier = ClassificationHead(emb_size, n_classes)
+
+#     def forward(self, x):
+#         fast_x = self.fast_biot(x)
+#         slow_x = self.slow_biot(x)
+#         # concat
+#         x = self.classifier(torch.cat((fast_x, slow_x), 1))
+#         # # add
+#         # x = self.classifier(fast_x+slow_x)
+#         return x
 
 
 # unsupervised pre-train module
@@ -217,10 +334,14 @@ class SupervisedPretrain(nn.Module):
 
 if __name__ == "__main__":
     x = torch.randn(16, 2, 2000)
-    model = BIOTClassifier(n_fft=200, hop_length=200, depth=4, heads=8)
+    # model = BIOTClassifier(n_fft=200, hop_length=200, depth=4, heads=8)
+    # out = model(x)
+    # print(out.shape)
+
+    # model = UnsupervisedPretrain(n_fft=200, hop_length=200, depth=4, heads=8)
+    # out1, out2 = model(x)
+    # print(out1.shape, out2.shape)
+    
+    model = SlowFastBIOTEncoder(n_fft=200, hop_length=200, depth=4, heads=8)
     out = model(x)
     print(out.shape)
-
-    model = UnsupervisedPretrain(n_fft=200, hop_length=200, depth=4, heads=8)
-    out1, out2 = model(x)
-    print(out1.shape, out2.shape)

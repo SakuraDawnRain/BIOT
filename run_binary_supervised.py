@@ -22,6 +22,7 @@ from model import (
     STTransformer,
     BIOTClassifier,
     SlowFastBIOTClassifier,
+    EEG2vidClassifier
 )
 from utils import TUABLoader, CHBMITLoader, PTBLoader, focal_loss, BCE
 
@@ -133,7 +134,7 @@ def prepare_TUAB_dataloader(args):
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
 
-    root = "/home/ww/data/tuab_test"
+    root = "/inspire/hdd/ws-f4d69b29-e0a5-44e6-bd92-acf4de9990f0/public-project/wangwei-240107010004/data/tuh_eeg_abnormal/v3.0.1/edf/processed"
 
     train_files = os.listdir(os.path.join(root, "train"))
     np.random.shuffle(train_files)
@@ -336,6 +337,18 @@ def supervised(args):
 
     elif args.model == "SFBIOT":
         model = SlowFastBIOTClassifier(
+            n_classes=args.n_classes,
+            # set the n_channels according to the pretrained model if necessary
+            n_channels=args.in_channels,
+            n_fft=args.token_size,
+            hop_length=args.hop_length,
+        )
+        if args.pretrain_model_path and (args.sampling_rate == 200):
+            model.biot.load_state_dict(torch.load(args.pretrain_model_path))
+            print(f"load pretrain model from {args.pretrain_model_path}")
+            
+    elif args.model == "eeg2vid":
+        model = EEG2vidClassifier(
             n_classes=args.n_classes,
             # set the n_channels according to the pretrained model if necessary
             n_channels=args.in_channels,
