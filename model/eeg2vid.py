@@ -23,24 +23,20 @@ class Simple3DCNN(nn.Module):
         #     nn.MaxPool3d(kernel_size=(2, 2, 2), stride=2)
         # )
         
-        self.conv = nn.Sequential(
-            nn.Conv3d(1, 8, kernel_size=(3, 3, 3), padding=1),
+        self.conv1 = nn.Sequential(
+            nn.Conv3d(1, 4, kernel_size=(3, 3, 3), padding=1),
             nn.ReLU(),
             nn.MaxPool3d(kernel_size=(2, 2, 2), stride=2),
-            nn.Conv3d(8, 16, kernel_size=(3, 3, 3), padding=1),
+        )
+        self.conv2 = nn.Sequential(
+            nn.Conv3d(4, 16, kernel_size=(3, 3, 3), padding=1),
             nn.ReLU(),
             nn.MaxPool3d(kernel_size=(2, 2, 2), stride=2)
         )
-        
-        self.classifier = nn.Sequential(
-            nn.AdaptiveAvgPool3d((1, 1, 1)),
-            nn.Flatten(),
-            nn.Linear(16, num_classes)
-        )
 
     def forward(self, x):
-        x = self.conv(x)
-        x = self.classifier(x)
+        x = self.conv1(x)
+        x = self.conv2(x)
         return x
     
 
@@ -73,25 +69,6 @@ class EEG2vidEncoder(nn.Module):
         self.n_fft = n_fft
         self.hop_length = hop_length
 
-        # self.patch_embedding = PatchFrequencyEmbedding(
-        #     emb_size=emb_size, n_freq=self.n_fft // 2 + 1
-        # )
-        # self.transformer = LinearAttentionTransformer(
-        #     dim=emb_size,
-        #     heads=heads,
-        #     depth=depth,
-        #     max_seq_len=1024,
-        #     attn_layer_dropout=0.2,  # dropout right after self-attention layer
-        #     attn_dropout=0.2,  # dropout post-attention
-        # )
-        # self.positional_encoding = PositionalEncoding(emb_size)
-
-        # # channel token, N_channels >= your actual channels
-        # self.channel_tokens = nn.Embedding(n_channels, 256)
-        # self.index = nn.Parameter(
-        #     torch.LongTensor(range(n_channels)), requires_grad=False
-        # )
-
     def stft(self, sample):
         spectral = torch.stft( 
             input = sample.squeeze(1),
@@ -122,16 +99,23 @@ class EEG2vidClassifier(nn.Module):
     def __init__(self, emb_size=256, heads=8, depth=4, n_classes=6, **kwargs):
         super().__init__()
         # 1. Use STFT to transform EEG into "video" of energy function
-        self.encoder = EEG2vidEncoder(emb_size=emb_size, heads=heads, depth=depth, **kwargs)
+        self.eeg_encoder = EEG2vidEncoder(emb_size=emb_size, heads=heads, depth=depth, **kwargs)
         # 2. Channel embedding such as a linear layer
         self.channel_emb = nn.Linear(23, 64)
-        # 3. Use video classifier 
-        self.classifier = Simple3DCNN(num_classes=n_classes)
+        # 3. Use video encoder
+        self.vid_encoder = Simple3DCNN()
+        # 4. Use classifier
+        self.classifier = nn.Sequential(
+            nn.AdaptiveAvgPool3d((1, 1, 1)),
+            nn.Flatten(),
+            nn.Linear(16, n_classes)
+        )
 
     def forward(self, x):
-        v = self.encoder(x)
-        v = self.channel_emb(v)
-        y = self.classifier(v)
+        z = self.eeg_encoder(x)
+        z = self.channel_emb(z)
+        z = self.vid_encoder(z)
+        y = self.classifier(z)
         return y
 
 
